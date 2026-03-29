@@ -1,69 +1,59 @@
-#!/usr/bin/env bash
+#!/bin/bash
+set -e
 
-# Modified for TeamSpeak 6 Server
+### ПЕРЕМЕННЫЕ НАСТРОЙКИ
+TS_USER="teamspeak"
+TS_HOME="/opt/teamspeak6"
+DOWNLOAD_URL="https://github.com/teamspeak/teamspeak6-server/releases/download/v6.0.0%2Fbeta8/teamspeak-server_linux_amd64-v6.0.0-beta8.tar.bz2"
 
-source /dev/stdin <<<"$FUNCTIONS_FILE_PATH"
-color
-verb_ip6
-catch_errors
-setting_up_container
-network_check
-update_os
+### Обновление системы
+apt update && apt upgrade -y
 
-# === TS6 CONFIG ===
-RELEASE="v6.0.0-beta8"
-TS_URL="https://github.com/teamspeak/teamspeak6-server/releases/download/v6.0.0%2Fbeta8/teamspeak-server_linux_amd64-${RELEASE}.tar.bz2"
+### Создаём пользователя
+useradd -m -d "$TS_HOME" -s /usr/sbin/nologin "$TS_USER" || true
 
-msg_info "Setting up TeamSpeak 6 Server"
+### Установка зависимостей (если нужны)
+apt install -y bzip2 tar
 
-# Download
-curl -fsSL "$TS_URL" -o ts6server.tar.bz2
+### Скачиваем и распаковываем
+mkdir -p "$TS_HOME"
+cd /tmp
+wget -O teamspeak6.tar.bz2 "$DOWNLOAD_URL"
+tar xjf teamspeak6.tar.bz2
 
-# Extract
-tar -xf ts6server.tar.bz2
+# Перемещаем в папку teamspeak
+mv ./teamspeak-server_linux_amd64 "$TS_HOME"
+chown -R "$TS_USER":"$TS_USER" "$TS_HOME"
 
-# Move to /opt
-mv teamspeak-server_linux_amd64/ /opt/teamspeak-server/
+### Принятие лицензии (файл)
+touch "$TS_HOME/.tsserver_license_accepted"
+chown "$TS_USER":"$TS_USER" "$TS_HOME/.tsserver_license_accepted"
 
-# Accept license
-touch /opt/teamspeak-server/.ts3server_license_accepted
-
-# Cleanup
-rm -f ~/ts6server.tar.bz2
-
-# Save version
-echo "${RELEASE}" > ~/.teamspeak-server
-
-msg_ok "Setup TeamSpeak 6 Server"
-
-# === SYSTEMD SERVICE ===
-msg_info "Creating service"
-
-cat <<EOF >/etc/systemd/system/teamspeak-server.service
+### systemd‑unit
+cat > /etc/systemd/system/teamspeak6.service << 'EOF'
 [Unit]
 Description=TeamSpeak 6 Server
-Wants=network-online.target
 After=network.target
 
 [Service]
-WorkingDirectory=/opt/teamspeak-server
-User=root
+User=teamspeak
+Group=teamspeak
+WorkingDirectory=/opt/teamspeak6
 Type=forking
-ExecStart=/opt/teamspeak-server/tsserver_startscript.sh start
-ExecStop=/opt/teamspeak-server/tsserver_startscript.sh stop
-ExecReload=/opt/teamspeak-server/tsserver_startscript.sh restart
-Restart=always
-RestartSec=15
+ExecStart=/opt/teamspeak6/tsserver --accept-license --daemon --pid-file /opt/teamspeak6/ts6server.pid
+ExecStartPre=/bin/rm -f /opt/teamspeak6/ts6server.pid
+PIDFile=/opt/teamspeak6/ts6server.pid
+ExecStop=/bin/kill -TERM $MAINPID
+Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reexec
-systemctl enable -q --now teamspeak-server
+### Перезагружаем systemd и включаем автозапуск
+systemctl daemon-reload
+systemctl enable teamspeak6.service
 
-msg_ok "Created service"
-
-motd_ssh
-customize
-cleanup_lxc
+echo "Установка завершена! Запустить сервер: systemctl start teamspeak6.service"
+echo "Посмотреть статус: systemctl status teamspeak6.service"
