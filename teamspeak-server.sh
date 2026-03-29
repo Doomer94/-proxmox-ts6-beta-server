@@ -1,37 +1,38 @@
 #!/bin/bash
 set -e
 
+# ====== Параметры установки ======
 TS_USER="teamspeak"
 TS_HOME="/opt/teamspeak6"
 DOWNLOAD_URL="https://github.com/teamspeak/teamspeak6-server/releases/download/v6.0.0%2Fbeta8/teamspeak-server_linux_amd64-v6.0.0-beta8.tar.bz2"
 VOICE_PORT=9987  # стандартный порт TS6 UDP
 
-# Обновление системы
+# ====== Обновление системы и установка зависимостей ======
 apt update && apt upgrade -y
 apt install -y bzip2 tar wget curl
 
-# Создание пользователя
+# ====== Создание пользователя ======
 useradd -m -d "$TS_HOME" -s /usr/sbin/nologin "$TS_USER" || true
 
-# Скачивание и распаковка
+# ====== Скачивание и распаковка архива ======
 mkdir -p "$TS_HOME"
 cd /tmp
 wget -O teamspeak6.tar.bz2 "$DOWNLOAD_URL"
 tar xjf teamspeak6.tar.bz2
 
-# Перемещение содержимого на верхний уровень
+# ====== Перемещение файлов на верхний уровень ======
 mv teamspeak-server_linux_amd64/* "$TS_HOME"/
 rmdir teamspeak-server_linux_amd64
 chown -R "$TS_USER":"$TS_USER" "$TS_HOME"
 
-# Принятие лицензии
+# ====== Принятие лицензии ======
 touch "$TS_HOME/.tsserver_license_accepted"
 chown "$TS_USER":"$TS_USER" "$TS_HOME/.tsserver_license_accepted"
 
-# Даем права на исполняемый бинарник
-chmod +x "$TS_HOME/ts6server"
+# ====== Даем права на исполняемый бинарник ======
+chmod +x "$TS_HOME/tsserver"
 
-# systemd unit
+# ====== Создание systemd unit ======
 cat > /etc/systemd/system/teamspeak6.service << 'EOF'
 [Unit]
 Description=TeamSpeak 6 Server
@@ -42,9 +43,9 @@ User=teamspeak
 Group=teamspeak
 WorkingDirectory=/opt/teamspeak6
 Type=forking
-ExecStart=/opt/teamspeak6/ts6server --accept-license --daemon --pid-file /opt/teamspeak6/ts6server.pid
-ExecStartPre=/bin/rm -f /opt/teamspeak6/ts6server.pid
-PIDFile=/opt/teamspeak6/ts6server.pid
+ExecStart=/opt/teamspeak6/tsserver --accept-license --daemon --pid-file /opt/teamspeak6/tsserver.pid
+ExecStartPre=/bin/rm -f /opt/teamspeak6/tsserver.pid
+PIDFile=/opt/teamspeak6/tsserver.pid
 ExecStop=/bin/kill -TERM $MAINPID
 Restart=on-failure
 RestartSec=5
@@ -53,14 +54,15 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-# Перезагрузка systemd и включение автозапуска
+# ====== Перезагрузка systemd и автозапуск ======
 systemctl daemon-reload
 systemctl enable teamspeak6.service
 systemctl start teamspeak6.service
 
-# Вывод локального IP
+# ====== Определение локального IP ======
 LOCAL_IP=$(ip addr show | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | cut -d/ -f1 | head -n1)
 
+# ====== Вывод информации ======
 echo "=============================================="
 echo "TeamSpeak 6 Server установлен и запущен!"
 echo "Локальный IP сервера: $LOCAL_IP"
